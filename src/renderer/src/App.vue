@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import SysConst from '@renderer/common/utils/SysConst'
 import ApiOllama from '@renderer/common/net/ApiOllama'
 const log = ref('')
@@ -12,11 +12,14 @@ class Model {
   checked = false
   isRuning = false
 }
+onMounted(() => {
+  onClickGetModels()
+})
 const modelList = ref<Array<Model>>([])
 async function onClickGetModels() {
   const data = await ApiOllama.listLocalModels()
   log.value = data
-  modelList.value = data.models.map((it) => {
+  const tempList: Model[] = data.models.map((it) => {
     return {
       name: it.name,
       model: it.model,
@@ -25,6 +28,33 @@ async function onClickGetModels() {
       checked: false,
       isRuning: false
     }
+  })
+  tempList.sort((a: Model, b: Model) => {
+    const aLastChar = a.parameterSize.charAt(a.parameterSize.length - 1)
+    const bLastChar = b.parameterSize.charAt(b.parameterSize.length - 1)
+    const charCompareIndex = bLastChar.localeCompare(aLastChar)
+    if (charCompareIndex == 0) {
+      return a.parameterSize.localeCompare(b.parameterSize)
+    }
+    return charCompareIndex
+  })
+  modelList.value = tempList.filter((it) => {
+    return !it.model.includes('embed')
+  })
+
+  //获取当前正在运行的模型
+  if (modelList.value.length == 0) {
+    return
+  }
+  const runningData = await ApiOllama.listRunningModels()
+  const hasRunning = runningData && runningData.models && runningData.models.length > 0
+  if (!hasRunning) {
+    modelList.value[0].checked = true
+    return
+  }
+  const firstRuning = runningData.models[0]
+  modelList.value.forEach((it) => {
+    it.checked = it.name == firstRuning.name
   })
 }
 function onClickModelItem(model: Model) {
@@ -35,6 +65,13 @@ function onClickModelItem(model: Model) {
 const askStr = ref('')
 class Chat {
   id = ``
+  /**
+   * 消息类型
+   * A:提问
+   * R:回复
+   * E:异常
+   * S:统计信息
+   */
   type: 'A' | 'R' = 'A'
   content = ''
 }
@@ -57,20 +94,37 @@ async function runQuestion(askContent: string) {
     type: 'R',
     content: askStr.value
   })
-  const newIndex = newLen - 1
-  await ApiOllama.generate(
-    'qwen2:0.5b-instruct-q8_0',
-    askContent,
-    (str: string) => {
-      chatList.value[newIndex].content += str
+  const newChat = chatList.value[newLen - 1]
+  const modelActive = modelList.value.find((it) => {
+    return it.checked
+  })
+  const modelName = modelActive ? modelActive.name : ''
+  const res = await ApiOllama.generate(modelName, askContent, {
+    resStream(str: string) {
+      newChat.content += str
     },
-    (err: string) => {
+    resFailed(err: string) {
       console.warn('出错啦', err)
     },
-    () => {
+    resComplate() {
       console.warn('回答结束啦')
     }
-  )
+  })
+  console.log('正常结束', res)
+}
+const filterStr = ref('')
+function filterModel(model: Model) {
+  if (filterStr.value || filterStr.value.length > 0) {
+    const lowerStr = filterStr.value.toLowerCase()
+    return (
+      model.model.toLowerCase().startsWith(lowerStr) ||
+      model.parameterSize.toLowerCase().startsWith(lowerStr)
+    )
+  }
+  return true
+}
+function onAskEnter() {
+  onClickSendQuestion()
 }
 </script>
 
@@ -78,38 +132,58 @@ async function runQuestion(askContent: string) {
   <div class="page">
     <div class="left">
       <div class="attr-item">
-        <div class="caption">平台</div>
-        <div class="value">Ollama</div>
+        <div class="caption">Ollama</div>
+        <div class="value">
+          <div class="btn" @click="onClickGetModels()">获取模型</div>
+        </div>
       </div>
       <div class="attr-item">
-        <div class="caption">API地址</div>
-        <div class="value">{{ ollamaEndPoint }}</div>
+        <div class="caption">API</div>
+        <div class="value">
+          {{ ollamaEndPoint }}
+        </div>
       </div>
       <div class="attr-item">
         <div class="caption">模型列表</div>
         <div class="value">
-          <div class="btn" @click="onClickGetModels()">获取</div>
+          <input v-model="filterStr" class="filter" />
         </div>
       </div>
       <div class="model-list">
-        <div v-for="model in modelList" :key="model.name" class="model-item"
-          :class="model.checked ? 'model-item-active' : ''" @click="onClickModelItem(model)">
-          <div class="name">{{ model.name }}</div>
-          <div class="detail">{{ model.parameterSize }} | {{ model.quantizationLevel }}</div>
-        </div>
+        <template v-for="model in modelList" :key="model.name">
+          <div
+            v-if="filterModel(model)"
+            class="model-item"
+            :class="model.checked ? 'model-item-active' : ''"
+            @click="onClickModelItem(model)"
+          >
+            <div class="name">{{ model.name }}</div>
+            <div class="detail">{{ model.parameterSize }} | {{ model.quantizationLevel }}</div>
+          </div>
+        </template>
       </div>
     </div>
     <div class="middle">
       <div class="model-state">
-        <div>正在运行的模型:</div>
+        <!-- <div>正在运行的模型:</div> -->
       </div>
       <div class="chat-list">
-        <div class="chat-item" v-for="chat in chatList" :key="chat.id" :class="chat.type == 'A' ? 'ask' : 'reply'" >
+        <div
+          v-for="chat in chatList"
+          :key="chat.id"
+          class="chat-item"
+          :class="chat.type == 'A' ? 'ask' : 'reply'"
+        >
           {{ chat.content }}
         </div>
       </div>
       <div class="user-ask">
-        <input v-model="askStr" class="input" />
+        <input
+          v-model="askStr"
+          class="input"
+          placeholder="请输入您的问题"
+          @keyup.enter="onAskEnter"
+        />
         <div class="btn-send" @click="onClickSendQuestion()">发送</div>
       </div>
     </div>
@@ -156,7 +230,9 @@ $borderColor: #575555;
       }
 
       .btn {
-        width: 102px;
+        width: 100%;
+        margin-left: 10px;
+        margin-right: 10px;
         height: 32px;
         border-radius: 10px;
         color: white;
@@ -172,6 +248,16 @@ $borderColor: #575555;
 
       .btn:active {
         background-color: rgba(82, 123, 193, 0.8);
+      }
+
+      .filter {
+        width: 100%;
+        margin-left: 10px;
+        margin-right: 10px;
+        height: 26px;
+        border-radius: 10px;
+        border: 1px solid $borderColor;
+        text-align: center;
       }
     }
 
@@ -239,7 +325,7 @@ $borderColor: #575555;
       }
 
       .ask {
-        color: #f1b0be;
+        color: #b3b0f1;
         padding-left: 10px;
         margin-bottom: 10px;
         white-space: pre-wrap;
@@ -251,7 +337,9 @@ $borderColor: #575555;
         margin-bottom: 20px;
         border-bottom: 1px solid $borderColor;
         padding-bottom: 10px;
-
+        line-height: 18px;
+        font-size: 14px;
+        font-family: '行书';
       }
     }
 
@@ -267,7 +355,7 @@ $borderColor: #575555;
         height: 55px;
         margin-left: 10px;
         margin-right: 10px;
-        font-size: 20px;
+        font-size: 16px;
         border-radius: 10px;
         padding-left: 6px;
         padding-right: 6px;
@@ -304,3 +392,4 @@ $borderColor: #575555;
   }
 }
 </style>
+: { name: any; model: any; details: { parameter_size: any; quantization_level: any; }; }: any: any

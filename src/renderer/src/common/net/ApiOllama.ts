@@ -1,5 +1,10 @@
-// const OLLAMA_ENDPOINT = 'http://localhost:11434'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/*ollama API 接口：
+https://ollama.fan/reference/api/
+https://github.com/ollama/ollama/blob/main/docs/api.md
+*/
 import SysConst from '@renderer/common/utils/SysConst'
+import IChatCallBack from './IChatCallBack'
 const DefaultHeader = {
   method: 'GET',
   headers: {
@@ -19,13 +24,13 @@ export default class ApiOllama {
     const data = await res.json()
     return data
   }
-  static async generate(
-    modelName: string,
-    prompt: string,
-    cbStream: (str: string) => void,
-    cbFailed: (err: string) => void,
-    cbComplate: () => void
-  ) {
+  /**
+   * 补全对话
+   * @param modelName 模型名称
+   * @param prompt 提示词
+   * @param cbChat 对话回调
+   */
+  static async generate(modelName: string, prompt: string, cbChat: IChatCallBack) {
     const data = {
       model: modelName,
       prompt: prompt,
@@ -42,62 +47,46 @@ export default class ApiOllama {
       },
       body: JSON.stringify(data)
     })
+    let doneRes: any = {}
     // 检查响应状态码以确保请求成功
     if (!response.ok) {
-      if (cbFailed) {
-        cbFailed(`HTTP error! status: ${response.status}`)
-      }
+      cbChat.resFailed(`HTTP error! status: ${response.status}`)
+      return
+    }
+    const reader = response?.body?.getReader()
+    if (reader == null) {
+      cbChat.resFailed('stream is empty')
       return
     }
 
-    // 创建一个 `Readable` 对象来读取流式数据，这样可以逐块处理数据而非一次性加载所有数据到内存中。
-    // const stream = response.body
-    // if (stream == undefined || stream == null) {
-    //   console.warn('stream is emtpy')
-    //   if (cbFailed) {
-    //     cbFailed('stream is empty')
-    //   }
-    //   return
-    // }
-    // const textDecoder = new TextDecoder() // 创建解码器
-    // for await (const chunk of stream) {
-    //   const str = textDecoder.decode(chunk) // 利用解码器把数据解析成字符串
-    //   if (cbStream) {
-    //     cbStream(str)
-    //   }
-    // }
-    const reader = response?.body?.getReader();
-    if (reader == null) {
-      if (cbFailed) {
-        cbFailed('stream is empty')
-      }
-      return
-    }
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
+    const textDecoder = new TextDecoder('utf-8')
+    let doing = true
+    while (doing) {
       const { done, value } = await reader.read()
       if (done) {
-        if (cbComplate) {
-          cbComplate()
-        }
+        cbChat.resComplate()
+        doing = false
         break
       }
-      // 假设是文本数据，需要将其解码为字符串
-      const chunkStr = new TextDecoder().decode(value)
-      const chunkJson = JSON.parse(chunkStr)
-      if (chunkJson.done) {
-        if (cbComplate) {
-          cbComplate()
+      // 需要将其解码为字符串
+      const chunkStr = textDecoder.decode(value)
+      try {
+        const chunkJson = JSON.parse(chunkStr)
+        if (chunkJson.done) {
+          cbChat.resComplate()
+          doneRes = chunkJson
+          doing = false
+          break
         }
+        cbChat.resStream(chunkJson.response)
+      } catch (ex) {
+        console.warn(ex)
+        cbChat.resFailed('stream is empty')
+        doing = false
         break
       }
-      if (cbStream) {
-        console.log("response",chunkJson.response)
-        cbStream(chunkJson.response)
-      }
     }
-    if (cbComplate) {
-      cbComplate()
-    }
+    cbChat.resComplate()
+    return doneRes
   }
 }
