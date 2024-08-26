@@ -151,12 +151,8 @@ function onAskEnter() {
       </div>
       <div class="model-list">
         <template v-for="model in modelList" :key="model.name">
-          <div
-            v-if="filterModel(model)"
-            class="model-item"
-            :class="model.checked ? 'model-item-active' : ''"
-            @click="onClickModelItem(model)"
-          >
+          <div v-if="filterModel(model)" class="model-item" :class="model.checked ? 'model-item-active' : ''"
+            @click="onClickModelItem(model)">
             <div class="name">{{ model.name }}</div>
             <div class="detail">{{ model.parameterSize }} | {{ model.quantizationLevel }}</div>
           </div>
@@ -168,28 +164,51 @@ function onAskEnter() {
         <!-- <div>正在运行的模型:</div> -->
       </div>
       <div class="chat-list">
-        <div
-          v-for="chat in chatList"
-          :key="chat.id"
-          class="chat-item"
-          :class="chat.type == 'A' ? 'ask' : 'reply'"
-        >
+        <div v-for="chat in chatList" :key="chat.id" class="chat-item" :class="chat.type == 'A' ? 'ask' : 'reply'">
           {{ chat.content }}
         </div>
       </div>
       <div class="user-ask">
-        <input
-          v-model="askStr"
-          class="input"
-          placeholder="请输入您的问题"
-          @keyup.enter="onAskEnter"
-        />
+        <input v-model="askStr" class="input" placeholder="请输入您的问题" @keyup.enter="onAskEnter" />
         <div class="btn-send" @click="onClickSendQuestion()">发送</div>
       </div>
     </div>
     <div class="right"></div>
   </div>
 </template>
+
+
+<style>
+/* 自定义滚动条的整体部分 */
+::-webkit-scrollbar {
+  width: 10px;
+  /* 宽度 */
+  height: 10px;
+  /* 高度，对于垂直滚动条 */
+}
+
+/* 自定义滚动条的滑块部分 */
+::-webkit-scrollbar-thumb {
+  background: #888;
+  /* 滑块颜色 */
+  border-radius: 5px;
+  /* 圆角 */
+}
+
+/* 鼠标悬停时的滑块样式 */
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+  /* 变色效果 */
+}
+
+/* 自定义滚动条轨道 */
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  /* 轨道颜色 */
+  border-radius: 5px;
+  /* 轨道圆角 */
+}
+</style>
 
 <style lang="scss" scoped>
 $borderColor: #575555;
