@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
   // Create the browser window.
+  console.log("===createWindow===",process.env)
   const mainWindow = new BrowserWindow({
     width: 1920,
     height: 1080,
